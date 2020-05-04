@@ -1,4 +1,4 @@
-# %%
+
 # Imports
 import os
 import pandas as pd
@@ -9,16 +9,17 @@ from scipy.ndimage import gaussian_filter1d
 from fcutils.maths.utils import binArray
 from tqdm import tqdm 
 from scipy import stats
+import multiprocessing as mp
 
 
-from utils import gaussian_wind_fn
-
-# %%
 # Get a session
 one = ONE()
 one.set_figshare_url = "https://figshare.com/articles/steinmetz/9974357"
 
 sessions =  one.search(['spikes'])
+
+
+
 sess_n = 36
 sess = sessions[36]
 
@@ -51,13 +52,27 @@ if not os.path.isfile(df_fp):
 else:
     spikes = pd.read_hdf(df_fp)
 
-# %%
+
 # Get spikes for one brain region at the time
 max_T = 10 * 60 * 1000 # 10 minutes
 time = np.zeros((max_T, 1))
 time_vals = np.arange(0, len(time))
 sigma = 100 # 100ms std
 
+def get_cell_frate(args):
+    time, cells, cell = args
+    print(f'processing cell {cell} of {cells.shape[1]}')
+
+    res = np.zeros_like(time).ravel()
+    spike_times = np.where(cells[:, cell] == 1)[0]
+
+    for spike in spike_times:
+        gauss = stats.norm(spike, sigma)
+        support = np.linspace(0, len(time), len(time))
+        density = gauss.pdf(support)
+
+        res = res + cells[:, cell] * density
+    return res
 
 for region in ['SCm']:
     # prep some file paths
@@ -80,19 +95,13 @@ for region in ['SCm']:
     if not os.path.isfile(frates_fp):
         frates = np.zeros_like(cells)
 
-        for cell in tqdm(np.arange(cells.shape[1])):
-            res = np.zeros_like(time).ravel()
-            spike_times = np.where(cells[:, cell] == 1)[0]
-
-            for spike in tqdm(spike_times):
-                gauss = stats.norm(spike, sigma)
-                support = np.linspace(0, len(time), len(time))
-                density = gauss.pdf(support)
-
-                res = res + cells[:, cell] * density
-            frates[:, cell] = res
+        pool = mp.Pool(mp.cpu_count()-2)
+        res = pool.map(get_cell_frate, [(time, cells, cell) for cell in np.arange(5)])
+        pool.close()
 
         np.save(frates_fp, frates)
+
+
     else:
         frates = np.load(frates_fp)
 
@@ -109,7 +118,7 @@ for region in ['SCm']:
 
 
 
-# %%
+
 # TODO smooth data
 
 # # bin data
@@ -125,4 +134,4 @@ for region in ['SCm']:
 
 
 
-# %%
+
