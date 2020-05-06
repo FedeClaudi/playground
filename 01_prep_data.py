@@ -8,7 +8,15 @@ from tqdm import tqdm
 from scipy import stats
 import multiprocessing as mp
 from sklearn import decomposition, manifold
+from random import choices
+import time
+import pickle
 
+N_samples = 15000
+
+def save_pickle(filepath, data):
+    with open(filepath, 'wb') as handle:
+        pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 def get_cell_frate(args):
     time, cells, cell, sigma = args
@@ -26,7 +34,7 @@ def get_cell_frate(args):
     return res
 
 def run():
-    from oneibl.onelight import ONE
+    from oneibl.onelight import ONE, repository
 
     # Get a session
     one = ONE()
@@ -35,9 +43,12 @@ def run():
     sessions =  one.search(['spikes'])
 
 
-
+    
     sess_n = 36
-    sess = sessions[36]
+    
+    try:
+        sess = sessions[36]
+    except: pass
 
     # ----------------------------- Get metadata/data ---------------------------- #
     df_fp = os.path.join('data', f'sess{sess_n}_alldata.h5')
@@ -115,11 +126,27 @@ def run():
 
         # embedd data into lower dimensional embeddiing spaces to facilitate future analysi
         print('Reducing dimensionality')
-        stable_frates = np.sqrt(frates)
+        pklfile = os.path.join('data', 'SCM_iso20.pkl')
 
-        iso_instance = manifold.Isomap(5, 20) # 5 nearest neightbours and 20 dimensional embedding
-        proj_data = iso_instance.fit_transform(stable_frates)
-        np.save(os.path.join('data', 'SCm_iso_20.npy'), proj_data)
+        if os.path.isfile(pklfile):
+            print('Skipping isomap because pickled isomap instance already exists')
+        else:
+            if N_samples < max_T:
+                idxs = choices(np.arange(max_T), k=N_samples)
+                sel_frates = frates[idxs, :]
+            else:
+                sel_frates = frates.copy()
+
+            stable_frates = np.sqrt(sel_frates)
+
+            iso_instance = manifold.Isomap(5, 20, n_jobs=10) # 5 nearest neightbours and 20 dimensional embedding
+            iso_instance = iso_instance.fit(stable_frates)
+            proj_data = iso_instance.transform(stable_frates)
+            np.save(os.path.join('data', 'SCm_iso_20.npy'), proj_data)
+
+            save_pickle(pklfile, iso_instance)
+
+
 
 
 

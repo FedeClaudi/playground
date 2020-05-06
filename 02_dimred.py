@@ -13,50 +13,95 @@ from brainrender.scene import Scene
 
 from random  import choices
 
+import pickle 
+
+
+def save_pickle(filepath, data):
+    with open(filepath, 'wb') as handle:
+        pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+def load_pickle(filepath):
+    """
+	Load a pickle file
+	:param filepath: path to pickle file
+	"""
+    if filepath is None or not os.path.isfile(filepath):
+        raise ValueError("unrecognized file path: {}".format(filepath))
+    if not "pkl" in filepath and not "pickle" in filepath:
+        raise ValueError("unrecognized file path: {}".format(filepath))
+
+    with open(filepath, 'rb') as handle:
+        data = pickle.load(handle)
+    return data
+
+
 # %%
 # ------------------------------ Params and load ----------------------------- #
-load_isomap = False
+load_isomap = True
 load_umap = False
-N_SAMPLES =  100000
 
-regions = ['SCm']
-regdata = namedtuple('regdata', 'spikes rates')
-data = {r:regdata(
-            pd.read_hdf(os.path.join('data', 'sess36_alldata.h5')), 
-                    np.load(os.path.join('data', f'sess_36_{r}_frates.npy'))) for r in regions }
+transform_all_iso = True
+N_samples = 40000
 
-random_idxs = choices(np.arange(data['SCm'].rates.shape[0]), k=N_SAMPLES)
+data = np.load(os.path.join('data', 'SCm_iso_20.npy'))
+
+rates = np.load(os.path.join('data', 'sess_36_SCm_frates.npy'))
+# idxs = choices(np.arange(rates.shape[0]), k=N_samples)
+# rates = rates[idxs, :]
+rates = rates[:N_samples, :]
+
+# rates = rates.reshape((-1, rates.shape[1], 10)).mean(axis=2) # reshape and bin
 
 # %%
 # ------------------------------------ PCA ----------------------------------- #
 print('PCA')
 
-pca = PCA(n_components=3).fit_transform(data['SCm'].rates[random_idxs, :])
+pca = PCA(n_components=3).fit_transform(data)
 
-coords = [pca[i, :] for i in np.arange(pca.shape[0])]
-pca_points = Spheres(coords, r=.25, c='green', alpha=.8)
+coords = pd.DataFrame(dict(x=pca[:, 0], y=pca[:, 1], z=pca[:, 2]))
+
+# isoscene = Scene(add_root=False, display_inset=False, title='pca')
+# isoscene.add_cells(coords, radius=.05, color='green', res=24)
+# isoscene.render()
+
+
 # show(pca_points)
 # %%
 # ---------------------------------- Isomap ---------------------------------- #
 print('Isomap')
+isopath = os.path.join('data', 'SCm_iso_3.pkl')
+iso20path = os.path.join('data', 'SCm_iso20.pkl')
+
 if load_isomap:
-    proj_data = np.load('SCm_iso_3.npy')
+    proj_data = np.load(os.path.join('data', 'SCm_iso_3.npy'))
+    iso_instance = load_pickle(isopath)
 else:
     iso_instance = manifold.Isomap(4, 3)
 
-    proj_data = iso_instance.fit_transform(data['SCm'].rates[random_idxs, :])
-    np.save('SCm_iso_3.npy', proj_data)
+    proj_data = iso_instance.fit_transform(data)
+    np.save(os.path.join('data', 'SCm_iso_3.npy'), proj_data)
+    save_pickle(isopath, iso_instance)
 
+if transform_all_iso:
+    print(f'Transforming all data with dimension: {rates.shape}')
+    iso20 = load_pickle(iso20path)
+    print('All data to 20')
+    proj_data = iso20.transform(np.sqrt(rates))
+    print('All data to 3')
+    proj_data = iso_instance.transform(proj_data)
 
-# coords = [proj_data[i, :] for i in np.arange(proj_data.shape[0])]
-# iso_points = Spheres(coords, r=.005, c='salmon', alpha=.8)
+starts = proj_data[1:, :]
+ends = proj_data[:-1, :]
+lines = Lines(starts, endPoints=ends)
+
 
 coords = pd.DataFrame(dict(x=proj_data[:, 0], y=proj_data[:, 1], z=proj_data[:, 2]))
 
 isoscene = Scene(add_root=False, display_inset=False, title='isomap')
-isoscene.add_cells(coords, radius=0.0025, color='salmon', res=24)
+isoscene.add_cells(coords, radius=0.1, color='salmon', res=24)
+isoscene.add_vtkactor(lines)
 isoscene.render()
-# show(iso_points, newPlotter=True)
+isoscene.close()
 
 
 # %%
@@ -71,18 +116,15 @@ _umap_params = dict(
 if not load_umap:
     umapper = umap.UMAP(**_umap_params)
 
-    umapped = umapper.fit_transform(data['SCm'].rates[random_idxs, :])
-    np.save('SCm_umap_3.npy', umapped)
+    umapped = umapper.fit_transform(data)
+    np.save(os.path.join('data', 'SCm_umap_3.npy'), umapped)
 else:
-    umapped = np.load('SCm_umap_3.npy')
+    umapped = np.load(os.path.join('data', 'SCm_umap_3.npy'))
 
-# coords = [umapped[i, :] for i in np.arange(umapped.shape[0])]
-# umap_points = Spheres(coords, r=.25, c='blue')
-
-
+# Plot
 coords = pd.DataFrame(dict(x=umapped[:, 0], y=umapped[:, 1], z=umapped[:, 2]))
 
 isoscene = Scene(add_root=False, display_inset=False, title='umap')
-isoscene.add_cells(coords, radius=.5, color='skyeblue', res=24)
+isoscene.add_cells(coords, radius=.5, color='blue', res=24)
 isoscene.render()
 
